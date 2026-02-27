@@ -1,0 +1,289 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { api } from '../services/api';
+
+const AdminPanel = () => {
+  const [activeTab, setActiveTab] = useState('users');
+  const [users, setUsers] = useState([]);
+  const [bills, setBills] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [complaints, setComplaints] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Check if admin is logged in
+    const token = localStorage.getItem('token');
+    const isAdmin = localStorage.getItem('admin');
+    const storedUser = localStorage.getItem('user');
+    
+    if (!token || !isAdmin) {
+      navigate('/admin-login');
+      return;
+    }
+
+    // Set user data if available
+    if (storedUser) {
+      try {
+        const userData = JSON.parse(storedUser);
+        // Dispatch event to update AuthContext
+        window.dispatchEvent(new CustomEvent('adminLogin', { detail: userData }));
+      } catch (error) {
+        console.error('Error parsing stored user data:', error);
+      }
+    }
+
+    const fetchData = async () => {
+      try {
+        const [usersRes, billsRes, paymentsRes, complaintsRes] = await Promise.all([
+          api.get('/users'),
+          api.get('/bills'),
+          api.get('/payments'),
+          api.get('/complaints')
+        ]);
+
+        setUsers(usersRes.data);
+        setBills(billsRes.data);
+        setPayments(paymentsRes.data);
+        setComplaints(complaintsRes.data);
+      } catch (error) {
+        console.error('Error fetching admin data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [navigate]);
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('admin');
+    navigate('/admin-login');
+  };
+
+  const updateComplaintStatus = async (complaintId, newStatus) => {
+    try {
+      await api.put(`/complaints/${complaintId}`, { status: newStatus });
+      
+      // Update local state
+      setComplaints(prev => prev.map(complaint => 
+        complaint._id === complaintId 
+          ? { ...complaint, status: newStatus }
+          : complaint
+      ));
+    } catch (error) {
+      console.error('Error updating complaint status:', error);
+      alert('Failed to update complaint status');
+    }
+  };
+
+  if (loading) {
+    return <div className="container"><div className="card">Loading admin panel...</div></div>;
+  }
+
+  return (
+    <div className="container">
+      <div className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+          <h1>Admin Panel</h1>
+          <button onClick={handleLogout} className="btn btn-danger">
+            Logout
+          </button>
+        </div>
+        
+        {/* Tab Navigation */}
+        <div style={{ marginBottom: '2rem' }}>
+          <div className="btn-group">
+            <button 
+              className={`btn ${activeTab === 'users' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setActiveTab('users')}
+            >
+              All Users
+            </button>
+            <button 
+              className={`btn ${activeTab === 'bills' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setActiveTab('bills')}
+            >
+              Current Bill Status
+            </button>
+            <button 
+              className={`btn ${activeTab === 'payments' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setActiveTab('payments')}
+            >
+              Payment History
+            </button>
+            <button 
+              className={`btn ${activeTab === 'complaints' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setActiveTab('complaints')}
+            >
+              Complaint Management
+            </button>
+          </div>
+        </div>
+
+        {/* Users Tab */}
+        {activeTab === 'users' && (
+          <div>
+            <h3>All Users List</h3>
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>User Name</th>
+                    <th>Email ID</th>
+                    <th>Consumer Number (EB ID)</th>
+                    <th>Address</th>
+                    <th>Registration Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.filter(user => user.role !== 'admin').map(user => (
+                    <tr key={user._id}>
+                      <td>{user.name}</td>
+                      <td>{user.email}</td>
+                      <td>{user.ebId}</td>
+                      <td>{user.address}</td>
+                      <td>{new Date(user.createdAt).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Bills Tab */}
+        {activeTab === 'bills' && (
+          <div>
+            <h3>Current Bill Status</h3>
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>User Name</th>
+                    <th>Consumer Number</th>
+                    <th>Current Bill Amount (₹)</th>
+                    <th>Units Consumed</th>
+                    <th>Payment Status</th>
+                    <th>Month</th>
+                    <th>Year</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bills.map(bill => {
+                    
+                    return (
+                      <tr key={bill._id}>
+                        <td>{bill.userId?.name || "Unknown User"}</td>
+                        <td>{bill.userId?.ebId || "N/A"}</td>
+                        <td>₹{bill.billAmount}</td>
+                        <td>{bill.unitsConsumed} units</td>
+                        <td>
+                          <span className={`status-badge ${bill.status === 'paid' ? 'status-paid' : 'status-unpaid'}`}>
+                            {bill.status === 'paid' ? '✅ Paid' : '❌ Unpaid'}
+                          </span>
+                        </td>
+                        <td>{bill.month}</td>
+                        <td>{bill.year}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Payments Tab */}
+        {activeTab === 'payments' && (
+          <div>
+            <h3>Payment History</h3>
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>User Name</th>
+                    <th>Consumer Number</th>
+                    <th>Bill Amount (₹)</th>
+                    <th>Paid Amount (₹)</th>
+                    <th>Payment Date</th>
+                    <th>Transaction ID</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map(payment => {
+                    
+                    const bill = bills.find(b => b._id === payment.billId);
+                    return (
+                      <tr key={payment._id}>
+                        <td>{payment.userId?.name || "Unknown User"}</td>
+                        <td>{payment.userId?.ebId || "N/A"}</td>
+                        <td>₹{bill ? bill.billAmount : 'N/A'}</td>
+                        <td>₹{payment.amountPaid}</td>
+                        <td>{new Date(payment.paymentDate).toLocaleDateString()}</td>
+                        <td>{payment.transactionId}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Complaints Tab */}
+        {activeTab === 'complaints' && (
+          <div>
+            <h3>Complaint Management</h3>
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Complaint ID</th>
+                    <th>User Name</th>
+                    <th>Complaint Description</th>
+                    <th>Date Submitted</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {complaints.map(complaint => {
+                    return (
+                      <tr key={complaint._id}>
+                        <td>{complaint._id}</td>
+                        <td>{complaint.userId?.name || 'Unknown User'}</td>
+                        <td>{complaint.title}</td>
+                        <td>{new Date(complaint.createdAt).toLocaleDateString()}</td>
+                        <td>
+                          <span className={`status-badge status-${complaint.status.toLowerCase().replace(/\s+/g, '-')}`}>
+                            {complaint.status}
+                          </span>
+                        </td>
+                        <td>
+                          <select 
+                            className="form-select" 
+                            value={complaint.status}
+                            onChange={(e) => updateComplaintStatus(complaint._id, e.target.value)}
+                            style={{ width: '120px' }}
+                          >
+                            <option value="Pending">Pending</option>
+                            <option value="In Progress">In Progress</option>
+                            <option value="Resolved">Resolved</option>
+                          </select>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default AdminPanel;
